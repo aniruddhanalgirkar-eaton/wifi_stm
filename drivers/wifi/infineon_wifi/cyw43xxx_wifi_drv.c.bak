@@ -1,0 +1,574 @@
+/* Copyright 2022 Cypress Semiconductor Corporation (an Infineon company) or an affiliate of Cypress Semiconductor
+   Corporation
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License. You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ */
+
+/**
+ * @brief CYW43xxx wifi driver.
+ */
+
+#define WIFI_NODE DT_COMPAT_GET_ANY_STATUS_OKAY( st_stm32_wifi_sdio )
+
+
+
+#include <logging/log.h>
+LOG_MODULE_REGISTER( infineon_cyw43xxx_wifi, CONFIG_WIFI_LOG_LEVEL );
+
+#include <net/ethernet.h>
+#include <net/net_pkt.h>
+#include <net/net_if.h>
+#include <device.h>
+#include <soc.h>
+#include <cybsp_wifi.h>
+#include <cyhal.h>
+#include <whd_types.h>
+#include <whd_events_int.h>
+#include <whd_buffer_api.h>
+#include <ethernet/eth_stats.h>
+#include <cybsp_wifi.h>
+#include <cybsp.h>
+
+// ANN added below 3 lines
+/*
+#include "cy_utils.h"
+#include "stm32f4xx_hal_sd.h"
+#include <drivers/pinctrl.h>
+#include "cyhal_sdhc.h"
+#include "cyhal_hw_resources.h"
+*/
+
+/*
+
+* The DMA type enum.
+typedef enum
+{
+    CY_SD_HOST_DMA_SDMA         = 0U, *< SDMA mode.
+    CY_SD_HOST_DMA_ADMA2        = 2U, *< ADMA2 mode.
+    CY_SD_HOST_DMA_ADMA2_ADMA3  = 3U  *< ADMA2-ADMA3 mode.
+}cy_en_sd_host_dma_type_t;
+
+* The widths of the data bus.
+typedef enum
+{
+    CY_SD_HOST_BUS_WIDTH_1_BIT              = 0U,  *< The 1-bit mode data transfer width.
+    CY_SD_HOST_BUS_WIDTH_4_BIT              = 1U,  *< The 4-bit mode data transfer width.
+    CY_SD_HOST_BUS_WIDTH_8_BIT              = 2U  *< The 8-bit mode data transfer width.
+} cy_en_sd_host_bus_width_t;
+
+
+* The card capacity type.
+typedef enum
+{
+    CY_SD_HOST_SDSC             = 0U,   *< SDSC - Secure Digital Standard Capacity (up to 2 GB).
+    CY_SD_HOST_SDHC             = 1U,   *< SDHC - Secure Digital High Capacity (up to 32 GB).
+    CY_SD_HOST_EMMC_LESS_2G     = 0U,   *< The eMMC block addressing for less than 2GB.
+    CY_SD_HOST_EMMC_GREATER_2G  = 1U,   *< The eMMC block addressing for greater than 2GB.
+    CY_SD_HOST_SDXC             = 2U,   *< SDXC - Secure Digital Extended Capacity (up to 2 TB).
+    CY_SD_HOST_UNSUPPORTED      = 4U    *< Not supported.
+}cy_en_sd_host_card_capacity_t;
+
+* Card type.
+typedef enum
+{
+    CY_SD_HOST_SD               = 0U,  *< The Secure Digital card (SD).
+    CY_SD_HOST_SDIO             = 1U,  *< The CD Input Output card (SDIO).
+    CY_SD_HOST_EMMC             = 2U,  *< The Embedded Multimedia card (eMMC).
+    CY_SD_HOST_COMBO            = 3U,  *< The Combo card (SD + SDIO).
+    CY_SD_HOST_UNUSABLE         = 4U,  *< The unusable or not supported.
+    CY_SD_HOST_NOT_EMMC         = 5U   *< The card is not eMMC.
+} cy_en_sd_host_card_type_t;
+
+* SD Host initialization configuration structure.
+typedef struct
+{
+    bool                          emmc;             *< Set to true of eMMC otherwise false.
+    cy_en_sd_host_dma_type_t      dmaType;          *< Selects the DMA type to be used.
+    bool                          enableLedControl; *< If true the SD clock controls one IO
+                                                     *   used to indicate when the card
+                                                     *    is being accessed.
+
+} cy_stc_sd_host_init_config_t;
+
+* SD/eMMC card configuration structure.
+typedef struct
+{
+    bool                          lowVoltageSignaling; *< If true, the host supports the 1.8V signaling.
+    cy_en_sd_host_bus_width_t     busWidth;            *< The desired bus width.
+    cy_en_sd_host_card_type_t     *cardType;           *< The card type.
+    uint32_t                      *rca;                *< The pointer to where to store the cards relative card address.
+    cy_en_sd_host_card_capacity_t *cardCapacity;       *< Stores the card capacity.
+}cy_stc_sd_host_sd_card_config_t;
+
+
+
+*
+  * @brief SDIO configurator struct
+  *
+  * This struct allows a configurator to provide block configuration information
+  * to the HAL. Because configurator-generated configurations are platform
+  * specific, the contents of this struct is subject to change between platforms
+  * and/or HAL releases.
+
+typedef struct {
+//#if defined(CY_IP_MXSDHC)
+    const cyhal_resource_inst_t*            resource;
+    const cy_stc_sd_host_init_config_t*     host_config;
+    cy_stc_sd_host_sd_card_config_t*        card_config;
+    //cyhal_clock_t*                          clock;
+    struct
+    {
+        cyhal_gpio_t                        clk;
+        cyhal_gpio_t                        cmd;
+        cyhal_gpio_t                        data[4];
+    } gpios;
+//#else
+//    void *empty;
+//#endif /* defined(CY_IP_MXSDHC) *
+} cyhal_sdio_configurator_t;
+*/
+
+/*
+cy_rslt_t cyhal_sdio_init(cyhal_sdio_t *obj, cyhal_gpio_t cmd, cyhal_gpio_t clk, cyhal_gpio_t data0, cyhal_gpio_t data1,
+        cyhal_gpio_t data2, cyhal_gpio_t data3);
+extern cy_rslt_t _cyhal_sdio_init_common(cyhal_sdio_t *obj, const cyhal_sdio_configurator_t *cfg);
+*/
+
+/**
+  * @brief Represents a particular instance of a resource on the chip.
+  * Application code should not rely on the specific contents of this struct.
+  * They are considered an implementation detail which is subject to change
+  * between platforms and/or HAL releases.
+  */
+/*typedef struct
+{
+    cyhal_resource_t type;      //!< The resource block type
+    uint8_t          block_num; //!< The resource block index
+    *
+      * The channel number, if the resource type defines multiple channels
+      * per block instance. Otherwise, 0
+    uint8_t          channel_num;
+} cyhal_resource_inst_t;*/
+
+
+
+
+#define DEV_DATA( dev ) \
+	( ( struct infineon_cyw43xxx_wifi_runtime* )( dev )->data )
+
+NET_BUF_POOL_DEFINE( cyw43xxx_pool, 12, 1600, 0, NULL );
+
+/* Use global iface pointer to support any Ethernet driver
+   necessary for wifi callback functions*/
+static struct net_if* infineon_cyw43xxx_wifi_iface;
+
+struct infineon_cyw43xxx_wifi_runtime
+{
+	struct net_if* iface;
+	uint8_t mac_addr[6];
+	bool tx_err;
+	uint32_t tx_word;
+	int tx_pos;
+	uint8_t frame_buf[NET_ETH_MAX_FRAME_SIZE];
+#if defined( CONFIG_NET_STATISTICS_ETHERNET )
+	struct net_stats_eth stats;
+#endif
+};
+
+whd_interface_t cyw43xxx_if;
+static const whd_event_num_t sta_link_events[] = {
+	WLC_E_LINK, WLC_E_DEAUTH_IND, WLC_E_DISASSOC_IND,
+	WLC_E_PSK_SUP, WLC_E_CSA_COMPLETE_IND, WLC_E_NONE
+};
+static uint16_t sta_event_handler_index = 0xFF;
+static void infineon_cyw43xxx_event_task( void );
+
+//static cyhal_sdio_t sdio_obj;
+cyhal_sdio_t sdio_obj;
+
+K_MSGQ_DEFINE( cyw43xxx_wifi_msgq, sizeof( whd_event_header_t ), 10, 4 );
+K_THREAD_STACK_DEFINE( cyw43xxx_wifi_event_stack, CONFIG_CYW43XXX_WIFI_EVENT_TASK_STACK_SIZE );
+
+static struct k_thread cyw43xxx_wifi_event_thread;
+
+/*
+struct stm32_sdmmc_priv
+{
+	// irq_config_func_t irq_config;
+	struct k_sem thread_lock;
+	struct k_sem sync;
+	SD_HandleTypeDef hsd;
+	int status;
+	struct k_work work;
+	// struct gpio_callback cd_cb;
+	struct
+	{
+		const char* name;
+		const struct device* port;
+		int pin;
+		int flags;
+	} cd;
+	struct
+	{
+		const char* name;
+		const struct device* port;
+		int pin;
+		int flags;
+	} pe;
+	// struct stm32_pclken pclken;
+	const struct pinctrl_dev_config* pcfg;
+};
+*/
+
+cyhal_sdio_t* cybsp_get_wifi_sdio_obj( void )
+{
+	// return ((cyhal_sdio_t *) SDIO_BASE);
+	return ( &sdio_obj );
+}
+
+whd_result_t cy_host_buffer_get( whd_buffer_t* buffer, whd_buffer_dir_t direction,
+								 unsigned short size, unsigned long timeout_ms )
+{
+	struct net_buf* buf;
+
+	buf = net_buf_alloc_len( &cyw43xxx_pool, size, K_NO_WAIT );
+	if ( buf == NULL )
+	{
+		return ( WHD_BUFFER_ALLOC_FAIL );
+	}
+	*buffer = buf;
+	return ( WHD_SUCCESS );
+}
+
+void cy_buffer_release( whd_buffer_t buffer, whd_buffer_dir_t direction )
+{
+	CY_UNUSED_PARAMETER( direction );
+	( void )net_buf_destroy( ( struct net_buf* )buffer );
+}
+
+uint8_t* cy_buffer_get_current_piece_data_pointer( whd_buffer_t buffer )
+{
+	CY_ASSERT( buffer != NULL );
+	struct net_buf* buf = ( struct net_buf* )buffer;
+
+	return ( ( uint8_t* )buf->data );
+}
+
+uint16_t cy_buffer_get_current_piece_size( whd_buffer_t buffer )
+{
+	CY_ASSERT( buffer != NULL );
+	struct net_buf* buf = ( struct net_buf* )buffer;
+
+	return ( ( uint16_t )buf->size );
+}
+
+whd_result_t cy_buffer_set_size( whd_buffer_t buffer, unsigned short size )
+{
+	CY_ASSERT( buffer != NULL );
+	struct net_buf* buf = ( struct net_buf* )buffer;
+
+	buf->size = size;
+	return ( CY_RSLT_SUCCESS );
+}
+
+whd_result_t cy_buffer_add_remove_at_front( whd_buffer_t* buffer, int32_t add_remove_amount )
+{
+	CY_ASSERT( buffer != NULL );
+	struct net_buf** buf = ( struct net_buf** )buffer;
+
+	if ( add_remove_amount > 0 )
+	{
+		( *buf )->len = ( *buf )->size;
+		( *buf )->data = net_buf_pull( *buf, add_remove_amount );
+	}
+	else
+	{
+		( *buf )->data = net_buf_push( *buf, -add_remove_amount );
+		( *buf )->len = ( *buf )->size;
+	}
+	return ( WHD_SUCCESS );
+}
+
+static int eth_infineon_cyw43xxx_send( const struct device* dev, struct net_pkt* pkt )
+{
+	struct infineon_cyw43xxx_wifi_runtime* data = dev->data;
+	cy_rslt_t ret = CY_RSLT_SUCCESS;
+	const int pkt_len = net_pkt_get_len( pkt );
+	struct net_buf* buf = NULL;
+
+	/* Read the packet payload */
+	if ( net_pkt_read( pkt, data->frame_buf, pkt_len ) < 0 )
+	{
+		LOG_ERR( "net_pkt_read failed" );
+		return ( -EIO );
+	}
+	/* Allocate Network Buffer from pool with Packet Length + Data Header */
+	buf = net_buf_alloc_len( &cyw43xxx_pool, pkt_len + sizeof( data_header_t ), K_NO_WAIT );
+
+	/* Reserve the buffer Headroom for WHD Data header */
+	net_buf_reserve( buf, sizeof( data_header_t ) );
+
+	/* Copy the buffer to network Buffer pointer */
+	memcpy( buf->data, data->frame_buf, pkt_len );
+
+	/* Call WHD API to send out the Packet */
+	ret = whd_network_send_ethernet_data( cyw43xxx_if, ( void* )buf );
+	if ( ret != CY_RSLT_SUCCESS )
+	{
+		LOG_ERR( "whd_network_send_ethernet_data failed" );
+		return ( -EIO );
+	}
+	return ( 0 );
+}
+
+void cy_network_process_ethernet_data( whd_interface_t iface, whd_buffer_t buf )
+{
+	struct net_pkt* pkt;
+	uint8_t* data = whd_buffer_get_current_piece_data_pointer( iface->whd_driver, buf );
+	uint32_t len = whd_buffer_get_current_piece_size( iface->whd_driver, buf );
+
+	if ( infineon_cyw43xxx_wifi_iface == NULL )
+	{
+		LOG_ERR( "network interface unavailable" );
+		goto exit;
+	}
+
+	pkt = net_pkt_rx_alloc_with_buffer( infineon_cyw43xxx_wifi_iface, len,
+										AF_UNSPEC, 0, K_NO_WAIT );
+	if ( !pkt )
+	{
+		LOG_ERR( "Failed to get net buffer" );
+		goto pkt_unref;
+	}
+
+	if ( net_pkt_write( pkt, data, len ) < 0 )
+	{
+		LOG_ERR( "Failed to write pkt" );
+		goto exit;
+	}
+
+	if ( net_recv_data( infineon_cyw43xxx_wifi_iface, pkt ) < 0 )
+	{
+		LOG_ERR( "Failed to push received data" );
+		goto exit;
+	}
+exit:
+	cy_buffer_release( buf, WHD_NETWORK_RX );
+	return;
+
+pkt_unref:
+	if ( pkt )
+	{
+		net_pkt_unref( pkt );
+	}
+}
+
+static void* link_events_handler( whd_interface_t ifp,
+								  const whd_event_header_t* event_header,
+								  const uint8_t* event_data, void
+								  * handler_user_data )
+{
+	k_msgq_put( &cyw43xxx_wifi_msgq, event_header, K_FOREVER );
+	return ( NULL );
+}
+
+static void infineon_cyw43xxx_event_task( void )
+{
+	whd_event_header_t event_header;
+
+	while ( 1 )
+	{
+		k_msgq_get( &cyw43xxx_wifi_msgq, &event_header, K_FOREVER );
+
+		switch ( event_header.event_type )
+		{
+			case WLC_E_LINK:
+				net_if_up( infineon_cyw43xxx_wifi_iface );
+				break;
+
+			case WLC_E_DEAUTH_IND:
+			case WLC_E_DISASSOC_IND:
+				net_if_down( infineon_cyw43xxx_wifi_iface );
+				break;
+
+			default:
+				break;
+		}
+
+	}
+}
+
+static void eth_infineon_cyw43xxx_init( struct net_if* iface )
+{
+	const struct device* dev = net_if_get_device( iface );
+	struct infineon_cyw43xxx_wifi_runtime* dev_data = DEV_DATA( dev );
+
+	dev_data->iface = iface;
+	infineon_cyw43xxx_wifi_iface = iface;
+
+	/* Start interface when we are actually connected with WiFi network */
+	net_if_flag_set( iface, NET_IF_NO_AUTO_START );
+
+	/* Read WLAN MAC Address */
+	whd_wifi_get_mac_address( cyw43xxx_if, &cyw43xxx_if->mac_addr );
+	memcpy( &dev_data->mac_addr, &cyw43xxx_if->mac_addr, sizeof( cyw43xxx_if->mac_addr ) );
+
+	/* Assign link local address. */
+	net_if_set_link_addr( iface,
+						  dev_data->mac_addr, 6, NET_LINK_ETHERNET );
+
+	ethernet_init( iface );
+}
+
+#if defined( CONFIG_NET_STATISTICS_ETHERNET )
+static struct net_stats_eth* eth_infineon_cyw43xxx_stats( const struct device* dev )
+{
+	return ( &( DEV_DATA( dev )->stats ) );
+}
+
+#endif
+
+static int eth_infineon_cyw43xxx_dev_init( const struct device* dev )
+{
+	cy_rslt_t ret = CY_RSLT_SUCCESS;
+	/*struct stm32_sdmmc_priv* priv = dev->data;
+	int err;*/
+
+	LOG_INF( "inside init" );
+
+	/* Configure dt provided device signals when available */
+	/*err = pinctrl_apply_state( priv->pcfg, PINCTRL_STATE_DEFAULT );
+	if ( err < 0 )
+	{
+		return ( err );
+	}*/
+
+	/*ret = cyhal_sdio_init( &sdio_obj, NC, NC,
+						   NC, NC, NC, NC );*/
+	cyhal_gpio_t sdio_cmd =
+			DT_GET_CYHAL_GPIO_FROM_DT_GPIOS(DT_WIFI_SDIO_NODE, wifi_sdio_cmd_gpios);
+
+		cyhal_gpio_t sdio_clk =
+			DT_GET_CYHAL_GPIO_FROM_DT_GPIOS(DT_WIFI_SDIO_NODE, wifi_sdio_clk_gpios);
+
+		cyhal_gpio_t sdio_d0 =
+			DT_GET_CYHAL_GPIO_FROM_DT_GPIOS(DT_WIFI_SDIO_NODE, wifi_sdio_d0_gpios);
+
+		cyhal_gpio_t sdio_d1 =
+			DT_GET_CYHAL_GPIO_FROM_DT_GPIOS(DT_WIFI_SDIO_NODE, wifi_sdio_d1_gpios);
+
+		cyhal_gpio_t sdio_d2 =
+			DT_GET_CYHAL_GPIO_FROM_DT_GPIOS(DT_WIFI_SDIO_NODE, wifi_sdio_d2_gpios);
+
+		cyhal_gpio_t sdio_d3 =
+			DT_GET_CYHAL_GPIO_FROM_DT_GPIOS(DT_WIFI_SDIO_NODE, wifi_sdio_d3_gpios);
+
+	ret = cyhal_sdio_init(&sdio_obj, sdio_cmd, sdio_clk,
+				      sdio_d0, sdio_d1, sdio_d2, sdio_d3);
+
+	if ( ret != CY_RSLT_SUCCESS )
+	{
+		LOG_ERR( "cyhal_sdio_init failed ret = %d \r\n", ret );
+	}
+
+	k_tid_t tid = k_thread_create( &cyw43xxx_wifi_event_thread,
+								   cyw43xxx_wifi_event_stack,
+								   CONFIG_CYW43XXX_WIFI_EVENT_TASK_STACK_SIZE,
+								   ( k_thread_entry_t )infineon_cyw43xxx_event_task,
+								   NULL, NULL, NULL,
+								   CONFIG_CYW43XXX_WIFI_EVENT_TASK_PRIO,
+								   K_INHERIT_PERMS, K_NO_WAIT );
+
+	k_thread_name_set( tid, "cyw43xxx_event" );
+
+	ret = cybsp_wifi_init_primary_extended( &cyw43xxx_if, NULL, NULL, NULL, NULL );
+	if ( ret != CY_RSLT_SUCCESS )
+	{
+		LOG_ERR( "cybsp_wifi_init_primary_extended failed ret = %d \r\n", ret );
+	}
+	ret = whd_management_set_event_handler( cyw43xxx_if, sta_link_events,
+											link_events_handler, NULL,
+											&sta_event_handler_index );
+	if ( ret != CY_RSLT_SUCCESS )
+	{
+		LOG_ERR( "whd_management_set_event_handler failed ret = %d \r\n", ret );
+	}
+
+	return ( ret );
+}
+
+static struct infineon_cyw43xxx_wifi_runtime eth_data;
+static const struct ethernet_api eth_infineon_cy43xxx_apis = {
+	.iface_api.init = eth_infineon_cyw43xxx_init,
+	.send = eth_infineon_cyw43xxx_send,
+#if defined( CONFIG_NET_STATISTICS_ETHERNET )
+	.get_stats = eth_infineon_cyw43xxx_stats,
+#endif
+};
+
+
+
+
+whd_result_t cy_buffer_pool_init( void* tx_packet_pool, void* rx_packet_pool )
+{
+	CY_UNUSED_PARAMETER( tx_packet_pool );
+	CY_UNUSED_PARAMETER( rx_packet_pool );
+
+	return ( 0 );
+}
+
+/* workaround for malloc */
+void* malloc( size_t size )
+{
+	return ( k_malloc( size ) );
+}
+
+void free( void* buff )
+{
+	k_free( buff );
+}
+/*
+cy_rslt_t cyhal_sdio_init(cyhal_sdio_t *obj, cyhal_gpio_t cmd, cyhal_gpio_t clk, cyhal_gpio_t data0, cyhal_gpio_t data1,
+        cyhal_gpio_t data2, cyhal_gpio_t data3)
+{
+    cy_en_sd_host_card_capacity_t card_capacity = CY_SD_HOST_SDSC;
+    cy_en_sd_host_card_type_t card_type = CY_SD_HOST_NOT_EMMC;
+    uint32_t rca = 0u;
+    const cy_stc_sd_host_init_config_t host_config =
+    {
+        .emmc = false,
+        .dmaType = CY_SD_HOST_DMA_ADMA2,
+        .enableLedControl = false,
+    };
+    cy_stc_sd_host_sd_card_config_t card_config =
+    {
+        .lowVoltageSignaling = false,
+        .busWidth = CY_SD_HOST_BUS_WIDTH_4_BIT,
+        .cardType = &card_type,
+        .rca = &rca,
+        .cardCapacity = &card_capacity,
+    };
+    const cyhal_sdio_configurator_t cfg = {
+        .resource = NULL,
+        .host_config = &host_config,
+		.card_config = &card_config,
+       // .clock = NULL,
+        .gpios = {clk, cmd, { data0, data1, data2, data3 } }
+    };
+    return _cyhal_sdio_init_common(obj, &cfg);
+}
+*/
+NET_DEVICE_DT_INST_DEFINE( 0,
+						   eth_infineon_cyw43xxx_dev_init, NULL,
+						   &eth_data, NULL, CONFIG_ETH_INIT_PRIORITY,
+						   &eth_infineon_cy43xxx_apis, ETHERNET_L2,
+						   NET_L2_GET_CTX_TYPE( ETHERNET_L2 ), NET_ETH_MTU );
