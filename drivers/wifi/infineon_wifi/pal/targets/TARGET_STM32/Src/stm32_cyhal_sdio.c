@@ -96,37 +96,6 @@ extern "C"
   * @{
   */
 
-#define SDIO_DataBlockSize_1b               ((uint32_t)0x00000000)
-#define SDIO_DataBlockSize_2b               ((uint32_t)0x00000010)
-#define SDIO_DataBlockSize_4b               ((uint32_t)0x00000020)
-#define SDIO_DataBlockSize_8b               ((uint32_t)0x00000030)
-#define SDIO_DataBlockSize_16b              ((uint32_t)0x00000040)
-#define SDIO_DataBlockSize_32b              ((uint32_t)0x00000050)
-#define SDIO_DataBlockSize_64b              ((uint32_t)0x00000060)
-#define SDIO_DataBlockSize_128b             ((uint32_t)0x00000070)
-#define SDIO_DataBlockSize_256b             ((uint32_t)0x00000080)
-#define SDIO_DataBlockSize_512b             ((uint32_t)0x00000090)
-#define SDIO_DataBlockSize_1024b            ((uint32_t)0x000000A0)
-#define SDIO_DataBlockSize_2048b            ((uint32_t)0x000000B0)
-#define SDIO_DataBlockSize_4096b            ((uint32_t)0x000000C0)
-#define SDIO_DataBlockSize_8192b            ((uint32_t)0x000000D0)
-#define SDIO_DataBlockSize_16384b           ((uint32_t)0x000000E0)
-#define IS_SDIO_BLOCK_SIZE(SIZE) (((SIZE) == SDIO_DataBlockSize_1b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_2b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_4b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_8b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_16b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_32b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_64b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_128b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_256b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_512b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_1024b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_2048b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_4096b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_8192b) || \
-                                  ((SIZE) == SDIO_DataBlockSize_16384b))
-
 /*typedef enum
 {
     SDIO_1B_BLOCK    =  1,
@@ -146,10 +115,11 @@ extern "C"
 //ANN: imp needs more buffer
 //ALIGNED_PRE(4) static uint8_t       temp_dma_buffer[MAX(2*1024,WICED_LINK_MTU+ 64)] ALIGNED(4);
 CYHAL_ALIGN_DMA_BUFFER(static uint32_t  temp_dma_buffer[_CYHAL_SDIO_DMA_BUFFER_SIZE]);
-static uint8_t*                     user_data;
+
+static const uint32_t*                     user_data;
 static uint32_t                     user_data_size;
 static sdio_block_size_t find_optimal_block_size    ( uint32_t data_size );
-static void              sdio_prepare_data_transfer ( cyhal_transfer_t direction, sdio_block_size_t block_size, uint8_t* data, uint16_t data_size );
+static void              sdio_prepare_data_transfer ( cyhal_transfer_t direction, sdio_block_size_t block_size, const uint32_t* data, uint16_t data_size );
 volatile uint32_t	current_command;
 
 static whd_bus_transfer_direction_t current_transfer_direction;
@@ -163,7 +133,7 @@ volatile bool DMA_Transfer_IC = WHD_FALSE;
 
 #endif
 
-#define HAL_SD_MODULE_ENABLED 1 //ANN added temp
+
 
 #if defined(HAL_SD_MODULE_ENABLED)
 
@@ -240,7 +210,7 @@ static SDIO_InitTypeDef sdio_init_structure;
 
 //ANN modied below
 //static uint8_t*                     dma_data_source;
-static uint32_t*                     dma_data_source;
+static const uint32_t*                     dma_data_source;
 static uint32_t                     dma_transfer_size;
 
 /*typedef enum
@@ -269,15 +239,10 @@ static uint32_t _stm32_sdio_cmd_send_op_cond(SDIO_TypeDef* SDMMCx);
 
 static uint32_t _stm32_sdio_cmd_rw_direct(SDIO_TypeDef* SDMMCx, uint32_t argument,
                                           uint32_t* response);
-static uint32_t _stm32_sdio_convert_block_size(uint16_t block_size);
-static uint32_t _stm32_sdio_find_optimal_block_size(uint32_t data_size);
 
 static void _stm32_sdio_enable_irq(const SD_TypeDef* instance, uint32_t priority, bool en_irq);
 
 //...dma ? static void _stm32_sdio_enable_irq(const SD_TypeDef* instance, uint32_t priority, bool en_irq);
-
-static void _stm32_sdio_enable_hw_block(cyhal_sdio_t* obj);
-static void _stm32_sdio_disable_hw_block(const cyhal_sdio_t* obj);
 
 static uint32_t _stm32_sdio_get_cmd_resp4(SDIO_TypeDef* SDMMCx);
 static uint32_t _stm32_sdio_get_cmd_resp5(SDIO_TypeDef* SDMMCx, uint8_t SD_CMD, uint32_t* data);
@@ -328,7 +293,6 @@ cy_rslt_t cyhal_sdio_init(cyhal_sdio_t* obj, cyhal_gpio_t cmd, cyhal_gpio_t clk,
     (void)data1;
     (void)data2;
     (void)data3;
-    uint32_t sdmmc_clk;
 
         /* ANN: Wiced adopted code*/
 #if defined (WICED)
@@ -565,8 +529,6 @@ cy_rslt_t cyhal_sdio_bulk_transfer(cyhal_sdio_t* obj, cyhal_transfer_t direction
 
     sdio_block_size_t block_size;
     uint16_t data_size = length;
-   // uint16_t sem_count = 0;
-    k_timeout_t k_timeout = K_MSEC(500);
     sdio_transfer_mode_t mode;
 
     mode = ( data_size >= (uint16_t) 64 ) ? SDIO_BLOCK_MODE : SDIO_BYTE_MODE;
@@ -630,7 +592,7 @@ restart:
 
         /* Prepare the SDIO for a data transfer */
         current_transfer_direction = direction;
-        sdio_prepare_data_transfer( direction, block_size, (uint8_t*) data, data_size );
+        sdio_prepare_data_transfer( direction, block_size, data, data_size );
 
         /* Send the command */
         SDIO->ARG = argument;
@@ -700,9 +662,9 @@ restart:
             }
         } while ( ( SDIO->STA & ( SDIO_STA_TXACT | SDIO_STA_RXACT ) ) != 0 );
 
-        if ( direction == BUS_READ )
+        if ( direction == CYHAL_READ )
         {
-            memcpy( data, dma_data_source, (size_t) user_data_size );
+            memcpy( (void*)data, dma_data_source, (size_t) user_data_size );
         }
     }
 
@@ -756,37 +718,15 @@ void cyhal_sdio_enable_event(cyhal_sdio_t* obj, cyhal_sdio_event_t event, uint8_
 
 ISR_DIRECT_DECLARE(stm32_cyhal_dma2_irq_handler)
 {
-    whd_result_t result;
-
     DMA_Transfer_IC = WHD_TRUE;
 
     /* Clear interrupt */
     DMA2->LIFCR = (uint32_t) (0x3F << 22);
 
-    //result = host_rtos_set_semaphore( &sdio_transfer_finished_semaphore, WHD_TRUE );
-    //result = cy_rtos_semaphore_set( &sdio_transfer_finished_semaphore );
+    // Give a semaphore
+     k_sem_give(&sdio_transfer_finished_semaphore);
 
-    if (&sdio_transfer_finished_semaphore == NULL)
-    {
-    	result = CY_RTOS_BAD_PARAM;
-    }
-    else
-    {
-        // Give a semaphore
-        k_sem_give(&sdio_transfer_finished_semaphore);
-    }
-
-
-//    sem_count--;
-
-    //WPRINT_WHD_DEBUG( ("J_semaphore = %d\n",result) );
-
-    /* check result if in debug mode */
-     //WPRINT_WHD_DEBUG( "failed to set dma semaphore", result == WHD_SUCCESS );
-
-    /*@-noeffect@*/
-   // (void) result; /* ignore result if in release mode */
-    /*@+noeffect@*/
+     return 1;
 }
 
 /***************************************************************************************************
@@ -857,17 +797,6 @@ ISR_DIRECT_DECLARE(stm32_cyhal_sdio_irq_handler)
 	            /* Clear all command/response interrupts */
 	            SDIO->ICR = (SDIO_STA_CMDREND | SDIO_STA_CMDSENT);
 	        }
-#if 0
-	        /* Check whether the external interrupt was triggered */
-	    if ( ( intstatus & SDIO_STA_SDIOIT ) != 0 )
-	        {
-	            /* Clear the interrupt and then inform WICED thread */
-	            SDIO->ICR = SDIO_ICR_SDIOITC;
-
-	            whd_thread_notify_irq( );
-	        }
-#endif
-
 	    }
 #endif //WICED
 
@@ -888,6 +817,7 @@ ISR_DIRECT_DECLARE(stm32_cyhal_sdio_irq_handler)
         obj->irq |= (uint32_t)CYHAL_SDIO_CARD_INTERRUPT;
     }
 //#endif
+	return 1;
 }
 
 
@@ -913,229 +843,6 @@ static uint32_t _stm32_safe_divide(uint32_t num, uint32_t denom)
     return divres;
 }
 
-
-/***************************************************************************************************
- * _stm32_sdio_enable_hw_block
- **************************************************************************************************/
-static void _stm32_sdio_enable_hw_block(cyhal_sdio_t* obj)
-{
-    /* Disable/reset SDIO Block */
-    _stm32_sdio_disable_hw_block(obj);
-
-    /* Enable the SDIO Clock */
-
-    #if defined (SDMMC1)
-    if (obj->hsd->Instance == SDMMC1)
-    {
-        __HAL_RCC_SDMMC1_CLK_ENABLE();
-    }
-    #endif
-    #if defined (SDMMC2)
-    else
-    {
-        __HAL_RCC_SDMMC2_CLK_ENABLE();
-    }
-    #endif
-#if(0) //ifndef(WICED)
-    //ANN added below
-    #if defined (SDIO)
-    {
-    	if (obj->hsd->Instance == SDIO)
-    	{
-     		 //Enable clocks for SDIO and DMA2
-   			//rcc_peripheral_enable_clock(&RCC_APB2ENR, RCC_APB2ENR_SDIOEN);
-     		 //__HAL_RCC_PWR_CLK_ENABLE();
-
-    		 //Enable the SDIO APB2 Clock
-    		  //RCC_APB2PeriphClockCmd(RCC_APB2ENR_SDIOEN, ENABLE);
-
-    		//__HAL_RCC_SDIO_CLK_ENABLE();
-    	do {
-    	   __IO uint32_t tmpreg;
-    	   //SET_BIT(RCC->AHB2ENR, 0x00000200);
-    	   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_SDIOEN);
-
-    	   // Delay after an RCC peripheral clock enabling
-    	   tmpreg = READ_BIT(RCC->APB2ENR, RCC_APB2ENR_SDIOEN);
-    	   UNUSED(tmpreg);
-    	   } while(0);
-    	}
-    }
-    #endif
-#endif //if(0)
-
-
-    /* Initialize SDMMC peripheral interface with default configuration */
-    //(void)SDMMC_Init(obj->hsd->Instance, obj->hsd->Init);
-
-      //obj->hsd->Init.ClockDiv = (uint32_t)0x76;
-
-      (void)SDIO_Init(obj->hsd->Instance, obj->hsd->Init);
-
-    /* Set Power State to ON */
-    //(void)SDMMC_PowerState_ON(obj->hsd->Instance);
-    (void)SDIO_PowerState_ON(obj->hsd->Instance);
-//#if(0)
-    /* Wait clock */
-    //(void)SDMMC_SetSDMMCReadWaitMode(obj->hsd->Instance, SDIO_READ_WAIT_MODE_CLK);
-    (void)SDIO_SetSDMMCReadWaitMode(obj->hsd->Instance, SDIO_READ_WAIT_MODE_CLK);
-    //(void)SDIO_SetSDIOReadWaitMode(obj->hsd->Instance, SDIO_READ_WAIT_MODE_CLK);
-
-
-    //uint32_t sdmmc_clk = HAL_RCCEx_GetPeriphCLKFreq(STM32_RCC_PERIPHCLK_SDMMC) /
-    //                     (2U * obj->hsd->Init.ClockDiv);
-
-
-//#endif
-    uint32_t sdmmc_clk = LL_RCC_GetSDIOClockFreq(LL_RCC_SDIO_CLKSOURCE) /
-                        (/*2U **/ obj->hsd->Init.ClockDiv);
-
-
-    if (sdmmc_clk != 0U)
-    {
-        /* Wait 74 Cycles: required power up waiting time
-         * before starting the SD initialization sequence */
-        HAL_Delay(1U + (74U * 1000U / (sdmmc_clk)));
-    }
-    else
-    {
-        HAL_Delay(2U);
-    }
-
-}
-
-/***************************************************************************************************
- * _stm32_sdio_disable_hw_block
- **************************************************************************************************/
-static void _stm32_sdio_disable_hw_block(const cyhal_sdio_t* obj)
-{
-    /* Reset SDIO Block */
-    //(void)SDMMC_PowerState_OFF(obj->hsd->Instance);
-	(void)SDIO_PowerState_OFF(obj->hsd->Instance);
-    #if defined (SDMMC1)
-    if (obj->hsd->Instance == SDMMC1)
-    {
-        __HAL_RCC_SDMMC1_FORCE_RESET();
-        __HAL_RCC_SDMMC1_RELEASE_RESET();
-    }
-    #endif
-    #if defined (SDMMC2)
-    else
-    {
-        __HAL_RCC_SDMMC2_FORCE_RESET();
-        __HAL_RCC_SDMMC2_RELEASE_RESET();
-    }
-    #endif
-//ANN added below
-    #if defined (SDIO)
-    {
-    	 __HAL_RCC_SDIO_FORCE_RESET();
-    	 __HAL_RCC_SDIO_RELEASE_RESET();
-    }
-	#endif
-}
-
-
-/***************************************************************************************************
- * _stm32_sdio_find_optimal_block_size
- **************************************************************************************************/
-static  uint32_t _stm32_sdio_find_optimal_block_size(uint32_t data_size)
-{
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_256B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_512B;
-    }
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_128B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_256B;
-    }
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_64B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_128B;
-    }
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_32B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_64B;
-    }
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_16B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_32B;
-    }
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_8B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_16B;
-    }
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_4B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_8B;
-    }
-    if (data_size > (uint32_t)_CYHAL_SDIO_DATA_BLOCK_SIZE_2B)
-    {
-        return _CYHAL_SDIO_DATA_BLOCK_SIZE_4B;
-    }
-    return _CYHAL_SDIO_DATA_BLOCK_SIZE_4B;
-}
-
-#if(0)
-/***************************************************************************************************
- * _stm32_sdio_convert_block_size
- **************************************************************************************************/
-static uint32_t _stm32_sdio_convert_block_size(uint16_t block_size)
-{
-    switch (block_size)
-    {
-        case 1:
-            return SDIO_DATABLOCK_SIZE_1B;
-
-        case 2:
-            return SDIO_DATABLOCK_SIZE_2B;
-
-        case 4:
-            return SDIO_DATABLOCK_SIZE_4B;
-
-        case 8:
-            return SDIO_DATABLOCK_SIZE_8B;
-
-        case 16:
-            return SDIO_DATABLOCK_SIZE_16B;
-
-        case 32:
-            return SDIO_DATABLOCK_SIZE_32B;
-
-        case 64:
-            return SDIO_DATABLOCK_SIZE_64B;
-
-        case 128:
-            return SDIO_DATABLOCK_SIZE_128B;
-
-        case 256:
-            return SDIO_DATABLOCK_SIZE_256B;
-
-        case 512:
-            return SDIO_DATABLOCK_SIZE_512B;
-
-        case 1024:
-            return SDIO_DATABLOCK_SIZE_1024B;
-
-        case 2048:
-            return SDIO_DATABLOCK_SIZE_2048B;
-
-        case 4096:
-            return SDIO_DATABLOCK_SIZE_4096B;
-
-        case 8192:
-            return SDIO_DATABLOCK_SIZE_8192B;
-
-        case 16384:
-            return SDIO_DATABLOCK_SIZE_16384B;
-
-        default:
-            assert_param(false); /* wrong value */
-            return SDIO_DATABLOCK_SIZE_512B;
-    }
-}
-
-#endif
 /***************************************************************************************************
  * _stm32_sdio_enable_irq
  **************************************************************************************************/
@@ -1441,14 +1148,14 @@ void HAL_SD_MspInit(SD_HandleTypeDef* hsd)
 
 }
 
-static void sdio_prepare_data_transfer( cyhal_transfer_t direction, sdio_block_size_t block_size, /*@unique@*/ uint8_t* data, uint16_t data_size ) /*@modifies dma_data_source, user_data, user_data_size, dma_transfer_size@*/
+static void sdio_prepare_data_transfer( cyhal_transfer_t direction, sdio_block_size_t block_size, /*@unique@*/ const uint32_t* data, uint16_t data_size ) /*@modifies dma_data_source, user_data, user_data_size, dma_transfer_size@*/
 {
     /* Setup a single transfer using the temp buffer */
     user_data         = data;
     user_data_size    = data_size;
     dma_transfer_size = (uint32_t) ( ( ( data_size + (uint16_t) block_size - 1 ) / (uint16_t) block_size ) * (uint16_t) block_size );
 
-    if ( direction == BUS_WRITE )
+    if ( direction == CYHAL_WRITE )
     {
         dma_data_source = data;
     }
@@ -1496,18 +1203,18 @@ static uint32_t sdio_get_blocksize_dctrl(sdio_block_size_t block_size)
 {
     switch (block_size)
     {
-        case SDIO_1B_BLOCK:    return SDIO_DataBlockSize_1b;
-        case SDIO_2B_BLOCK:    return SDIO_DataBlockSize_2b;
-        case SDIO_4B_BLOCK:    return SDIO_DataBlockSize_4b;
-        case SDIO_8B_BLOCK:    return SDIO_DataBlockSize_8b;
-        case SDIO_16B_BLOCK:   return SDIO_DataBlockSize_16b;
-        case SDIO_32B_BLOCK:   return SDIO_DataBlockSize_32b;
-        case SDIO_64B_BLOCK:   return SDIO_DataBlockSize_64b;
-        case SDIO_128B_BLOCK:  return SDIO_DataBlockSize_128b;
-        case SDIO_256B_BLOCK:  return SDIO_DataBlockSize_256b;
-        case SDIO_512B_BLOCK:  return SDIO_DataBlockSize_512b;
-        case SDIO_1024B_BLOCK: return SDIO_DataBlockSize_1024b;
-        case SDIO_2048B_BLOCK: return SDIO_DataBlockSize_2048b;
+        case SDIO_1B_BLOCK:    return SDIO_DATABLOCK_SIZE_1B;
+        case SDIO_2B_BLOCK:    return SDIO_DATABLOCK_SIZE_2B;
+        case SDIO_4B_BLOCK:    return SDIO_DATABLOCK_SIZE_4B;
+        case SDIO_8B_BLOCK:    return SDIO_DATABLOCK_SIZE_8B;
+        case SDIO_16B_BLOCK:   return SDIO_DATABLOCK_SIZE_16B;
+        case SDIO_32B_BLOCK:   return SDIO_DATABLOCK_SIZE_32B;
+        case SDIO_64B_BLOCK:   return SDIO_DATABLOCK_SIZE_64B;
+        case SDIO_128B_BLOCK:  return SDIO_DATABLOCK_SIZE_128B;
+        case SDIO_256B_BLOCK:  return SDIO_DATABLOCK_SIZE_256B;
+        case SDIO_512B_BLOCK:  return SDIO_DATABLOCK_SIZE_512B;
+        case SDIO_1024B_BLOCK: return SDIO_DATABLOCK_SIZE_1024B;
+        case SDIO_2048B_BLOCK: return SDIO_DATABLOCK_SIZE_2048B;
         default: return 0;
     }
 }
@@ -1573,287 +1280,6 @@ sdio_init(void)
 
 //ANN commented
 #endif /* defined(HAL_SDMMM_MODULE_ENABLED) */
-
-#if(0)
-cy_rslt_t cyhal_sdio_bulk_transfer(cyhal_sdio_t* obj, cyhal_transfer_t direction, uint32_t argument,
-                                   const uint32_t* data, uint16_t length, uint32_t* response)
-{
-    cy_rslt_t result = CYHAL_SDIO_RSLT_CANCELED;
-    CYHAL_ALIGN_DMA_BUFFER(static uint32_t  _temp_dma_buffer[_CYHAL_SDIO_DMA_BUFFER_SIZE]);
-
-     /* Check data buffer if aligned on 32-bytes (needed for cache maintenance purpose),
-     * and Length is multiple by block size. If NOT, use internal buffer for DMA */
-    bool use_temp_dma_buffer = (((uint32_t)data % _CYHAL_DMA_BUFFER_ALIGN_BYTES) != 0u) ||
-                               ((length % obj->block_size) != 0u);
-
-    /* Check the parameters */
-    assert_param(NULL != obj);
-    assert_param(0u != length);
-    assert_param(!use_temp_dma_buffer || (length <= sizeof(_temp_dma_buffer)));
-
-    SDIO_DataInitTypeDef config;
-    sdio_cmd_argument_t   arg = { .value = argument };
-
-    uint32_t  timeout = _CYHAL_SDIO_RW_RETRY_CYCLES;
-    uint32_t  number_of_blocks;
-    uint32_t  block_size;
-    uint32_t  flags;
-    uint32_t* p_dma_buffer = NULL;
-
-    if (obj->hsd->State == HAL_SD_STATE_READY)
-    {
-        /* Block size not initialized */
-        if (obj->block_size == 0U)
-        {
-            obj->block_size = _CYHAL_SDIO_DATA_BLOCK_SIZE_64B;
-        }
-
-        /* Block mode */
-        if (length >= obj->block_size)
-        {
-            block_size       = obj->block_size;
-            number_of_blocks = (length + block_size - 1u) / block_size;
-        }
-        /* Byte mode */
-        else
-        {
-            block_size       = _stm32_sdio_find_optimal_block_size(length);
-            number_of_blocks = 1UL;
-        }
-
-        /* Set the CMD53 byte mode size to be the same as the block size */
-        if (arg.cmd53.block_mode == 0U)
-        {
-            if (_stm32_sdio_find_optimal_block_size(arg.cmd53.count) <
-                _CYHAL_SDIO_DATA_BLOCK_SIZE_512B)
-            {
-                arg.cmd53.count = _stm32_sdio_find_optimal_block_size(arg.cmd53.count);
-            }
-            else
-            {
-                arg.cmd53.count = 0u;
-            }
-        }
-
-        obj->hsd->ErrorCode = HAL_SD_ERROR_NONE;
-        obj->hsd->State     = HAL_SD_STATE_BUSY;
-
-        /* Initialize data control register */
-        obj->hsd->Instance->DCTRL = 0u;
-
-        if (use_temp_dma_buffer)
-        {
-            if ((length == 0) || (length > sizeof(_temp_dma_buffer)))
-            {
-                obj->hsd->State = HAL_SD_STATE_READY;
-                return CYHAL_SDIO_BAD_ARGUMENT;
-            }
-
-            /* Using internal buffer */
-            p_dma_buffer = _temp_dma_buffer;
-
-            /* Clean internal buffer and copy data */
-            (void)memcpy((void*)_temp_dma_buffer, (void*)data, length);
-
-            if (length != sizeof(_temp_dma_buffer))
-            {
-                (void)memset((void*)&((uint8_t*)_temp_dma_buffer)[length], 0,
-                             sizeof(_temp_dma_buffer) - length);
-            }
-        }
-        else
-        {
-            /* Use app data buffer */
-            p_dma_buffer = (uint32_t*)data;
-        }
-
-        /* Maintenance D-cache for DMA buffers */
-        #if defined(_CYHAL_DCACHE_MAINTENANCE)
-        if (direction == CYHAL_WRITE)
-        {
-            SCB_CleanDCache_by_Addr((uint32_t*)p_dma_buffer, block_size * number_of_blocks);
-        }
-        else
-        {
-            /* Cache-Invalidate the output from DMA */
-            SCB_InvalidateDCache_by_Addr((uint32_t*)p_dma_buffer, block_size * number_of_blocks);
-        }
-        #endif /* if defined(_CYHAL_DCACHE_MAINTENANCE) */
-
-        /* DMA configuration (use single buffer) */
-        //obj->hsd->Instance->IDMACTRL  = SDMMC_ENABLE_IDMA_SINGLE_BUFF;
-        //ANN: the STM32F4 variant does not support DMA under internal SDIO/SDMMC, so, need to use the specific DMA Channel.
-        //Enable the DMA2 Clock
-
-        //__HAL_RCC_DMA2_CLK_ENABLE();//ANN commented as DMA clk is enabled earlier
-
-        //obj->hsd->Instance->IDMABASE0 = (uint32_t)p_dma_buffer;
-        //DMA2_Stream3->PAR = (uint32_t)p_dma_buffer;          // peripheral base address
-
-        /* Configure the SD DPSM (Data Path State Machine) */
-        config.DataTimeOut = SDMMC_DATATIMEOUT;
-        config.TransferDir = (direction == CYHAL_WRITE) ? SDIO_TRANSFER_DIR_TO_CARD :
-                             SDIO_TRANSFER_DIR_TO_SDIO;
-        config.TransferMode  = SDIO_TRANSFER_MODE_BLOCK;
-        config.DPSM          = SDIO_DPSM_DISABLE;
-        config.DataLength    = block_size * number_of_blocks;
-        config.DataBlockSize = _stm32_sdio_convert_block_size((uint16_t)block_size);
-
-        obj->hsd->Instance->DCTRL |= SDIO_DCTRL_SDIOEN; /* SD I/O enable functions */
-
-        /* obj->hsd->Instance->DCTRL |= (uint32_t)sdio_get_blocksize_dctrl(block_size) | bus_direction_mapping[(int)direction] |
-        		SDIO_TransferMode_Block | SDIO_DPSM_Enable | (1 << 3) | (1 << 11);*/
-
-        //(void)SDMMC_ConfigData(obj->hsd->Instance, &config);
-        (void)SDIO_ConfigData(obj->hsd->Instance, &config);
-
-
-        //ANN added below from WICED
-#if defined(WICED)
-        DMA2_Stream3->CR   = 0;
-        DMA2->LIFCR        = (uint32_t) ( 0x3F << 22 );
-        DMA2_Stream3->FCR  = (uint32_t) ( 0x00000021 | 4 | 3 );
-        DMA2_Stream3->PAR  = (uint32_t) &SDIO->FIFO;
-        DMA2_Stream3->M0AR = (uint32_t) dma_data_source;
-        //DMA2_Stream3->M0AR = (uint32_t) p_dma_buffer;//ANN
-        DMA2_Stream3->NDTR = dma_transfer_size/4;
-#endif
-
-
-//ANN commented below for sometime. Below macro does ORing with SDMMC_CMD_CMDTRANS which is for CPSM Treats command as a Data Transfer  
-  // __SDMMC_CMDTRANS_ENABLE(obj->hsd->Instance);
-
-
-        /* Call CMD53 (CYHAL_SDIO_CMD_IO_RW_EXTENDED) */
-        result = cyhal_sdio_send_cmd(obj, direction, CYHAL_SDIO_CMD_IO_RW_EXTENDED,
-                                     arg.value, response);
-
-        /* Check error from CMD53 */
-        if (result != HAL_SD_ERROR_NONE)
-        {
-            /* Clear all the static flags */
-            __HAL_SD_CLEAR_FLAG(obj->hsd, SDMMC_STATIC_FLAGS);
-            obj->hsd->State = HAL_SD_STATE_READY;
-            return result;
-        }
-
-        /* Check if there were any SDIO errors */
-		if ( ( SDIO->STA & ( SDIO_STA_DTIMEOUT | SDIO_STA_CTIMEOUT ) ) != 0 )
-		{
-			return CYHAL_SDIO_RET_CMD_TIMEOUT;
-		}
-		else if ( ( ( SDIO->STA & ( SDIO_STA_CCRCFAIL | SDIO_STA_DCRCFAIL | SDIO_STA_TXUNDERR | SDIO_STA_RXOVERR ) ) != 0 ) )
-		{
-			return CYHAL_SDIO_RET_CMD_TIMEOUT;
-		}
-
-
-/*
-         Set polling flags
-        flags = SDIO_FLAG_DCRCFAIL | SDIO_FLAG_DTIMEOUT | SDIO_FLAG_DATAEND |
-                SDIO_FLAG_TXUNDERR | SDIO_FLAG_RXOVERR;
-*/
-        /* Poll on SDMMC flags */
-        while ((!__HAL_SD_GET_FLAG(obj->hsd, flags)) && (timeout > 0u))
-        {
-            // returning ERROR code for timeout
-            //HAL_Delay(1U);
-            k_msleep(1);
-            //K_MSEC	(1);
-        	//for(int i=0;i<1000;i++);
-            timeout--;
-            if (timeout == 0u)
-            {
-                obj->hsd->State = HAL_SD_STATE_READY;
-                return CYHAL_SDIO_RET_CMD_TIMEOUT;
-            }
-        }
-
-
-        /* Check for SDMMC interrupt flags */
-        if (__HAL_SD_GET_FLAG(obj->hsd, SDIO_FLAG_DATAEND) != RESET)
-        {
-            __HAL_SD_CLEAR_FLAG(obj->hsd, SDIO_FLAG_DATAEND);
-        }
-        else if (__HAL_SD_GET_FLAG(obj->hsd, SDIO_FLAG_DCRCFAIL | SDIO_FLAG_DTIMEOUT |
-                                   SDIO_FLAG_RXOVERR | SDIO_FLAG_TXUNDERR) != RESET)
-        {
-            /* Set Error code */
-            if (__HAL_SD_GET_FLAG(obj->hsd, SDIO_FLAG_DCRCFAIL) != RESET)
-            {
-                obj->hsd->ErrorCode |= HAL_SD_ERROR_DATA_CRC_FAIL;
-            }
-            if (__HAL_SD_GET_FLAG(obj->hsd, SDIO_FLAG_DTIMEOUT) != RESET)
-            {
-                obj->hsd->ErrorCode |= HAL_SD_ERROR_DATA_TIMEOUT;
-            }
-            if (__HAL_SD_GET_FLAG(obj->hsd, SDIO_FLAG_RXOVERR) != RESET)
-            {
-                obj->hsd->ErrorCode |= HAL_SD_ERROR_RX_OVERRUN;
-            }
-            if (__HAL_SD_GET_FLAG(obj->hsd, SDIO_FLAG_TXUNDERR) != RESET)
-            {
-                obj->hsd->ErrorCode |= HAL_SD_ERROR_TX_UNDERRUN;
-            }
-        }
-        else
-        {
-            /* Nothing to do */
-        }
-
-        /* Set SDIO to init state */
-        //ANN: please ensure the obj->hsd is pointing to correct base address of required stream/channel
-        __HAL_SD_DISABLE_IT(obj->hsd, SDIO_IT_TXFIFOF);
-//        __HAL_SD_DISABLE_IT(obj->hsd, SDIO_IT_TXFIFOF);
-        //ANN: please ensure (STM32F4) SDIO_IT_TXFIFOF == (STM32H7) SDMMC_IT_IDMABTC. refer stm32l4xx_ll_sdmmc.h & stm32f4xx_ll_sdmmc.h
-
-        //ANN commented below as for STM32F4
-        //__SDMMC_CMDTRANS_DISABLE(obj->hsd->Instance);
-
-        obj->hsd->Instance->DLEN     = 0;
-        obj->hsd->Instance->DCTRL    = SDIO_DCTRL_SDIOEN;
-        //obj->hsd->Instance->IDMACTRL = SDMMC_DISABLE_IDMA;
-        __SDIO_OPERATION_DISABLE(obj->hsd->Instance);
-        obj->hsd->Instance->CMD      = 0;
-        //ANN: please check if it's required to reset FIFO, if so, then do it by finding right bit.
-        //obj->hsd->Instance->DCTRL   |= SDMMC_DCTRL_FIFORST;
-
-        /* Clear all the static flags */
-        __HAL_SD_CLEAR_FLAG(obj->hsd, SDIO_STATIC_DATA_FLAGS);
-
-        /* Copy received data to user */
-        if ((direction == CYHAL_READ) && (use_temp_dma_buffer) && (!obj->hsd->ErrorCode))
-        {
-            (void)memcpy((void*)data, (void*)_temp_dma_buffer, (size_t)length);
-        }
-
-        /* Set the SD state to ready to be able to start again the process */
-        _cyhal_sdio_handle->State = HAL_SD_STATE_READY;
-
-        /* This interrupt is disabled in interrupt handler so need to enable it here */
-        if (0U != ((uint32_t)CYHAL_SDIO_CARD_INTERRUPT & obj->irq))
-        {
-            __HAL_SD_ENABLE_IT(obj->hsd, SDIO_IT_SDIOIT);
-        }
-    }
-    else
-    {
-        obj->hsd->ErrorCode |= HAL_SD_ERROR_BUSY;
-        return CYHAL_SDIO_RSLT_ERR_PM_PENDING;
-    }
-
-    if (obj->hsd->ErrorCode == HAL_SD_ERROR_NONE)
-    {
-        result = CY_RSLT_SUCCESS;
-    }
-    else
-    {
-        result = CYHAL_SDIO_RET_NO_SP_ERRORS; /**< Non-specific error code*/
-    }
-    return result;
-}
-
-#endif
 
 #pragma GCC pop_options
 

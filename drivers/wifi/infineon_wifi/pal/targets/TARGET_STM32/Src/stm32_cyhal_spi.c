@@ -57,7 +57,7 @@ static uint16_t           spi_cs_gpio_pin;
 /***************************************************************************************************
  * spi_transfer_complete
  **************************************************************************************************/
-static void spi_transfer_complete(SPI_HandleTypeDef* hspi)
+/*static void spi_transfer_complete(SPI_HandleTypeDef* hspi)
 {
     (void)hspi;
 
@@ -65,7 +65,7 @@ static void spi_transfer_complete(SPI_HandleTypeDef* hspi)
     {
         HAL_GPIO_WritePin(spi_cs_gpio_port, spi_cs_gpio_pin, GPIO_PIN_SET);
     }
-}
+}*/
 
 
 /***************************************************************************************************
@@ -74,7 +74,7 @@ static void spi_transfer_complete(SPI_HandleTypeDef* hspi)
 cy_rslt_t stm32_cypal_spi_hw_init(SPI_HandleTypeDef* hspi, cyhal_gpio_t spi_cs)
 {
     cy_rslt_t         rslt = CY_RSLT_SUCCESS;
-    HAL_StatusTypeDef status;
+    //HAL_StatusTypeDef status;
 
     assert_param(hspi != NULL);
     #if (USE_HAL_SPI_REGISTER_CALLBACKS == 1U)
